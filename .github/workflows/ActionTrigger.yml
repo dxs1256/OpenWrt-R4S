@@ -24,15 +24,6 @@ jobs:
           -H "Authorization: Bearer ${{ secrets.TRIGGER_TOKEN }}" \
           -d '{"event_type": "Build-OpenWrts"}'
 
-
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ github.token }}
-        repository: ${{ github.repository }}
-        retain_days: 9
-        keep_minimum_runs: 6
-
     - name: Remove old Releases
       uses: dev-drprasad/delete-older-releases@v0.3.4
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
