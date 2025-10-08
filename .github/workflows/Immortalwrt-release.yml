@@ -158,42 +158,19 @@ jobs:
       - name: Assemble R4S Artifact
         id: assemble_r4s_artifact
         run: |
-          # 1. 清理并创建 Artifact 目录
           rm -rf ./artifact/
           mkdir -p ./artifact/
-
-          # 2. 移动 R4S 固件到 Artifact 目录
-          # 只移动包含 'r4s' 和 'sysupgrade.img' 的固件文件
-          find openwrt/bin/targets/rockchip/armv8/ -type f -name '*r4s*sysupgrade.img*' -exec mv {} ./artifact/ \;
-
-          # 3. 进入 Artifact 目录并处理文件
+          mv openwrt/bin/targets/rockchip/armv8/*sysupgrade.img* ./artifact/
           cd ./artifact/
-
-          # 3a. 解压（如果已经压缩）并重新压缩（如果未压缩）
-          gzip -d *.gz 2>/dev/null  # 尝试解压所有 gz 文件，忽略错误
-          gzip *.img                # 压缩所有 img 文件为 img.gz
-
-          # 4. 获取版本标签
+          gzip -d *.gz && exit 0
+          gzip *.img
           releaseTag=${{ env.latest_release }}
-
-          # 5. 生成 SHA256 校验文件 (只针对 R4S 文件)
-          # 命名中只体现 R4S
-          sha256sum *r4s*.gz | tee R4S-Situ-$releaseTag-$(date +%Y-%m-%d).sha256sum
-
-          # 6. 重命名 R4S 固件文件
-          # 重命名 ext4 固件 (用于全新安装)
-          mv *r4s*ext4*      ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
-
-          # 重命名 squashfs 固件 (用于系统升级)
-          mv *r4s*squashfs*  ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
-
-          # 7. 复制配置文件
+          sha256sum *.gz | tee R4S-Situ-$releaseTag-$(date +%Y-%m-%d).sha256sum
+          mv *r4s*ext4* ./R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
+          mv *r4s*squashfs* ./R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
           cd ../openwrt
           cp .config ../artifact/config-full.seed
           ./scripts/diffconfig.sh > ../artifact/config-diff.seed
-
-          # 8. 设置环境变量
-          # 命名中只体现 R4S
           release_tag="R4S-Situ-$releaseTag-$(date +%Y-%m-%d)"
           echo "release_tag=${release_tag}" >>$GITHUB_ENV
 
