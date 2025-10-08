@@ -178,14 +178,14 @@ jobs:
 
           # 5. 生成 SHA256 校验文件 (只针对 R4S 文件)
           # 命名中只体现 R4S
-          sha256sum *r4s*.gz | tee R4S-OPoA-$releaseTag-$(date +%Y-%m-%d).sha256sum
+          sha256sum *r4s*.gz | tee R4S-Situ-$releaseTag-$(date +%Y-%m-%d).sha256sum
 
           # 6. 重命名 R4S 固件文件
           # 重命名 ext4 固件 (用于全新安装)
-          mv *r4s*ext4* ./R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
+          mv *r4s*ext4*      ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
 
           # 重命名 squashfs 固件 (用于系统升级)
-          mv *r4s*squashfs* ./R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
+          mv *r4s*squashfs*  ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
 
           # 7. 复制配置文件
           cd ../openwrt
@@ -194,7 +194,7 @@ jobs:
 
           # 8. 设置环境变量
           # 命名中只体现 R4S
-          release_tag="R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)"
+          release_tag="R4S-Situ-$releaseTag-$(date +%Y-%m-%d)"
           echo "release_tag=${release_tag}" >>$GITHUB_ENV
 
       #-------------------------------------------------
