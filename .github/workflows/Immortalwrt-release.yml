@@ -1,27 +1,51 @@
-name: Immortalwrt release
+#=================================================
+#  ImmortalWrt Release 自动构建脚本
+#=================================================
+#  说明：
+#  - 每月 1 日 03:00（UTC）自动触发
+#  - 支持手动触发（workflow_dispatch）
+#  - 仅当仓库所有者点击 Star 或定时触发时才真正执行
+#  - 仅保留 NanoPi R4S 固件
+#  - 自动发布 Release 并上传固件、配置文件及校验文件
+#=================================================
 
+name: ImmortalWrt Release
+
+#-------------------------------------------------
+# 触发条件
+#-------------------------------------------------
 on:
   # push:
   #   branches:
   #     - master
   #   paths:
   #     - 'SWITCH'
+
+  # 每月 1 号 03:00 UTC 自动运行
   schedule:
     - cron: '0 3 1 * *'
+
+  # 仓库被 Star 时触发（仅所有者有效）
   watch:
     types: [started]
-    
-  # 新增：手动触发事件
+
+  # 手动触发按钮
   workflow_dispatch:
 
+#-------------------------------------------------
+# 任务定义
+#-------------------------------------------------
 jobs:
-
   build:
-
     runs-on: ubuntu-22.04
+
+    # 仅允许仓库所有者或定时任务触发
     if: github.repository_owner_id == github.event.sender.id || github.event_name == 'schedule'
 
     steps:
+      #-------------------------------------------------
+      # 1. 环境检查：CPU 型号判定
+      #-------------------------------------------------
       - name: Show system
         run: |
           echo -e "Total CPU cores\t: $(nproc)"
@@ -34,6 +58,10 @@ jobs:
             echo "CPU不为8370C或7763，性能不足，停止执行命令"
             exit 1
           fi
+
+      #-------------------------------------------------
+      # 2. 最大化可用磁盘空间
+      #-------------------------------------------------
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -44,6 +72,10 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
+
+      #-------------------------------------------------
+      # 3. 安装编译依赖
+      #-------------------------------------------------
       - name: Init build dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -60,31 +92,46 @@ jobs:
           sudo -E apt-get -qq clean
           sudo -E git config --global user.name 'GitHub Actions' && git config --global user.email 'noreply@github.com'
           df -h
+
+      #-------------------------------------------------
+      # 4. 拉取 ImmortalWrt 源码
+      #-------------------------------------------------
       - name: Checkout
         uses: actions/checkout@main
+
       - name: Prepare Sources
         id: prepare
         run: |
           sudo chown -R runner:runner /home/runner/work/R2S-R4S-OpenWrt
-          latest_release="$(curl -s https://github.com/immortalwrt/immortalwrt/tags | grep -Eo "v[0-9\.]+\-*r*c*[0-9]*.tar.gz" | sed -n '/[2-9][0-9]/p' | sed -n 1p | sed 's/.tar.gz//g')"
-          git clone -b ${latest_release} --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
+          latest_release="$(curl -s https://github.com/immortalwrt/immortalwrt/tags  | grep -Eo "v[0-9\.]+\-*r*c*[0-9]*.tar.gz" | sed -n '/[2-9][0-9]/p' | sed -n 1p | sed 's/.tar.gz//g')"
+          git clone -b ${latest_release} --depth 1 https://github.com/immortalwrt/immortalwrt.git  openwrt
           echo "latest_release=${latest_release}" >>$GITHUB_ENV
+
+      #-------------------------------------------------
+      # 5. 自定义软件包与配置
+      #-------------------------------------------------
       - name: Prepare Package
         run: |
           cd openwrt
           cp -f ../SCRIPTS/prepare_package.sh ./prepare_package.sh
           /bin/bash prepare_package.sh
+
       - name: Make Config
         run: |
           cd openwrt
           mv ../SEED/config-release.seed .config
           sed -i '/CONFIG_TARGET_ROOTFS_SQUASHFS/d' .config
           make defconfig
+
+      #-------------------------------------------------
+      # 6. 下载 & 编译
+      #-------------------------------------------------
       - name: Make Download
         run: |
           df -h
           cd openwrt
           make download -j50
+
       - name: Compile Openwrt
         id: compileopenwrt
         continue-on-error: true
@@ -93,39 +140,72 @@ jobs:
           cd openwrt
           make -j$(($(nproc) + 1)) || make -j$(($(nproc) + 1)) V=s
           echo $?
+
+      # 编译失败则单线程输出详细日志
       - name: If Error
         if: steps.compileopenwrt.outcome == 'failure'
         run: |
           cat openwrt/.config
           echo '================================================================'
           cd openwrt && make -j1 V=s
+
+      #-------------------------------------------------
+      # 7. 后期处理：仅保留 R4S 固件
+      #-------------------------------------------------
       - name: Print Disk Space After
         run: df -h
-      - name: Assemble Artifact
-        id: assemble_artifact
+
+      - name: Assemble R4S Artifact
+        id: assemble_r4s_artifact
         run: |
+          # 1. 清理并创建 Artifact 目录
           rm -rf ./artifact/
           mkdir -p ./artifact/
-          mv openwrt/bin/targets/rockchip/armv8/*sysupgrade.img* ./artifact/
+
+          # 2. 移动 R4S 固件到 Artifact 目录
+          # 只移动包含 'r4s' 和 'sysupgrade.img' 的固件文件
+          find openwrt/bin/targets/rockchip/armv8/ -type f -name '*r4s*sysupgrade.img*' -exec mv {} ./artifact/ \;
+
+          # 3. 进入 Artifact 目录并处理文件
           cd ./artifact/
-          gzip -d *.gz && exit 0
-          gzip *.img
+
+          # 3a. 解压（如果已经压缩）并重新压缩（如果未压缩）
+          gzip -d *.gz 2>/dev/null  # 尝试解压所有 gz 文件，忽略错误
+          gzip *.img                # 压缩所有 img 文件为 img.gz
+
+          # 4. 获取版本标签
           releaseTag=${{ env.latest_release }}
-          sha256sum *.gz | tee R2S-R4S-OPoA-$releaseTag-$(date +%Y-%m-%d).sha256sum
-          mv *r2s*ext4* ./R2S-OPoA-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
+
+          # 5. 生成 SHA256 校验文件 (只针对 R4S 文件)
+          # 命名中只体现 R4S
+          sha256sum *r4s*.gz | tee R4S-OPoA-$releaseTag-$(date +%Y-%m-%d).sha256sum
+
+          # 6. 重命名 R4S 固件文件
+          # 重命名 ext4 固件 (用于全新安装)
           mv *r4s*ext4* ./R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
-          mv *r2s*squashfs* ./R2S-OPoA-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
+
+          # 重命名 squashfs 固件 (用于系统升级)
           mv *r4s*squashfs* ./R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
+
+          # 7. 复制配置文件
           cd ../openwrt
           cp .config ../artifact/config-full.seed
           ./scripts/diffconfig.sh > ../artifact/config-diff.seed
-          release_tag="R2S-R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)"
+
+          # 8. 设置环境变量
+          # 命名中只体现 R4S
+          release_tag="R4S-OPoA-$releaseTag-$(date +%Y-%m-%d)"
           echo "release_tag=${release_tag}" >>$GITHUB_ENV
+
+      #-------------------------------------------------
+      # 8. 上传固件 & 创建 Release
+      #-------------------------------------------------
       - name: Upload Artifact
         uses: actions/upload-artifact@main
         with:
           name: ${{ env.release_tag }}-artifact
           path: ./artifact/
+
       - name: Create release
         id: create_release
         uses: ncipollo/release-action@main
