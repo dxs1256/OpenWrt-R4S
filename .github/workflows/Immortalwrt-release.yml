@@ -1,12 +1,12 @@
 #=================================================
-#  ImmortalWrt Release 自动构建脚本
+# ImmortalWrt Release 自动构建脚本
 #=================================================
-#  说明：
-#  - 每月 1 日 03:00（UTC）自动触发
-#  - 支持手动触发（workflow_dispatch）
-#  - 仅当仓库所有者点击 Star 或定时触发时才真正执行
-#  - 仅保留 NanoPi R4S 固件
-#  - 自动发布 Release 并上传固件、配置文件及校验文件
+# 说明：
+# - 每月 1 日 03:00（UTC）自动触发
+# - 支持手动触发（workflow_dispatch）
+# - 仅当仓库所有者点击 Star 或定时触发时才真正执行
+# - 仅保留 NanoPi R4S 固件
+# - 自动发布 Release 并上传固件、配置文件及校验文件
 #=================================================
 
 name: ImmortalWrt Release
@@ -15,226 +15,208 @@ name: ImmortalWrt Release
 # 触发条件
 #-------------------------------------------------
 on:
-  # push:
-  #   branches:
-  #     - master
-  #   paths:
-  #     - 'SWITCH'
+  # 每月 1 号 03:00 UTC 自动运行
+  schedule:
+    - cron: '0 3 1 * *'
 
-  # 每月 1 号 03:00 UTC 自动运行
-  schedule:
-    - cron: '0 3 1 * *'
+  # 仓库被 Star 时触发（仅所有者有效）
+  watch:
+    types: [started]
 
-  # 仓库被 Star 时触发（仅所有者有效）
-  watch:
-    types: [started]
-
-  # 手动触发按钮
-  workflow_dispatch:
+  # 手动触发按钮
+  workflow_dispatch:
 
 #-------------------------------------------------
 # 任务定义
 #-------------------------------------------------
 jobs:
-  build:
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-22.04
 
-    # 仅允许仓库所有者或定时任务触发
-    if: github.repository_owner_id == github.event.sender.id || github.event_name == 'schedule'
+    # 仅允许仓库所有者或定时任务触发
+    if: github.repository_owner_id == github.event.sender.id || github.event_name == 'schedule'
 
-    steps:
-      #-------------------------------------------------
-      # 1. 环境检查：CPU 型号判定
-      #-------------------------------------------------
-      - name: Show system
-        run: |
-          echo -e "Total CPU cores\t: $(nproc)"
-          cat /proc/cpuinfo | grep 'model name'
-          cpu_name=$(cat /proc/cpuinfo | grep "model name" | head -n 1 | awk -F: '{print $2}' | sed 's/^[ \t]*//')
-          if [[ "$cpu_name" =~ "8370C" || "$cpu_name" =~ "7763" ]]; then
-            echo "CPU为8370C或7763，继续执行命令"
-            ulimit -a
-          else
-            echo "CPU不为8370C或7763，性能不足，停止执行命令"
-            exit 1
-          fi
+    steps:
+      #-------------------------------------------------
+      # 1. 环境检查：CPU 型号判定
+      #-------------------------------------------------
+      - name: Show system
+        run: |
+          echo -e "Total CPU cores\t: $(nproc)"
+          cat /proc/cpuinfo | grep 'model name'
+          cpu_name=$(cat /proc/cpuinfo | grep "model name" | head -n 1 | awk -F: '{print $2}' | sed 's/^[ \t]*//')
+          if [[ "$cpu_name" =~ "8370C" || "$cpu_name" =~ "7763" ]]; then
+            echo "CPU为8370C或7763，继续执行命令"
+            ulimit -a
+          else
+            echo "CPU不为8370C或7763，性能不足，停止执行命令"
+            exit 1
+          fi
 
-      #-------------------------------------------------
-      # 2. 最大化可用磁盘空间
-      #-------------------------------------------------
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          swap-size-mb: 512
-          temp-reserve-mb: 128
-          root-reserve-mb: 3072
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
+      #-------------------------------------------------
+      # 2. 最大化可用磁盘空间
+      #-------------------------------------------------
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 512
+          temp-reserve-mb: 128
+          root-reserve-mb: 3072
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
 
-      #-------------------------------------------------
-      # 3. 安装编译依赖
-      #-------------------------------------------------
-      - name: Init build dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo swapoff -a
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install aria2
-          sudo -E wget -P /usr/local/sbin/ https://github.com/HiGarfield/lede-17.01.4-Mod/raw/master/.github/backup/apt-fast
-          sudo -E chmod -R 755 /usr/local/sbin/apt-fast
-          sudo -E apt-fast -y -qq install build-essential rsync asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libreadline-dev libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget ccache curl swig coreutils vim nano python3 python3-pip python3-ply haveged lrzsz scons libpython3-dev
-          sudo -E pip3 install pyelftools
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
-          sudo -E git config --global user.name 'GitHub Actions' && git config --global user.email 'noreply@github.com'
-          df -h
+      #-------------------------------------------------
+      # 3. 安装编译依赖
+      #-------------------------------------------------
+      - name: Init build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo swapoff -a
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install aria2
+          sudo -E wget -P /usr/local/sbin/ https://github.com/HiGarfield/lede-17.01.4-Mod/raw/master/.github/backup/apt-fast
+          sudo -E chmod -R 755 /usr/local/sbin/apt-fast
+          sudo -E apt-fast -y -qq install build-essential rsync asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libreadline-dev libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget ccache curl swig coreutils vim nano python3 python3-pip python3-ply haveged lrzsz scons libpython3-dev
+          sudo -E pip3 install pyelftools
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo -E git config --global user.name 'GitHub Actions' && git config --global user.email 'noreply@github.com'
+          df -h
 
-      #-------------------------------------------------
-      # 4. 拉取 ImmortalWrt 源码
-      #-------------------------------------------------
-      - name: Checkout
-        uses: actions/checkout@main
+      #-------------------------------------------------
+      # 4. 拉取 ImmortalWrt 源码
+      #-------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@main
 
-      - name: Prepare Sources
-        id: prepare
-        run: |
-          sudo chown -R runner:runner /home/runner/work/OpenWrt-R4S
-          latest_release="$(curl -s https://github.com/immortalwrt/immortalwrt/tags  | grep -Eo "v[0-9\.]+\-*r*c*[0-9]*.tar.gz" | sed -n '/[2-9][0-9]/p' | sed -n 1p | sed 's/.tar.gz//g')"
-          git clone -b ${latest_release} --depth 1 https://github.com/immortalwrt/immortalwrt.git  openwrt
-          echo "latest_release=${latest_release}" >>$GITHUB_ENV
+      - name: Prepare Sources
+        id: prepare
+        run: |
+          sudo chown -R runner:runner /home/runner/work/OpenWrt-R4S
+          latest_release="$(curl -s https://github.com/immortalwrt/immortalwrt/tags | grep -Eo 'v[0-9\.]+\-*r*c*[0-9]*.tar.gz' | sed -n '/[2-9][0-9]/p' | sed -n 1p | sed 's/.tar.gz//g')"
+          git clone -b ${latest_release} --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
+          echo "latest_release=${latest_release}" >>$GITHUB_ENV
 
-      #-------------------------------------------------
-      # 5. 自定义软件包与配置
-      #-------------------------------------------------
-      - name: Prepare Package
-        run: |
-          cd openwrt
-          cp -f ../SCRIPTS/prepare_package.sh ./prepare_package.sh
-          /bin/bash prepare_package.sh
+      #-------------------------------------------------
+      # 5. 自定义软件包与配置
+      #-------------------------------------------------
+      - name: Prepare Package
+        run: |
+          cd openwrt
+          cp -f ../SCRIPTS/prepare_package.sh ./prepare_package.sh
+          /bin/bash prepare_package.sh
 
-      - name: Make Config
-        run: |
-          cd openwrt
-          mv ../SEED/config-release.seed .config
-          sed -i '/CONFIG_TARGET_ROOTFS_SQUASHFS/d' .config
-          make defconfig
+      - name: Make Config
+        run: |
+          cd openwrt
+          mv ../SEED/config-release.seed .config
+          sed -i '/CONFIG_TARGET_ROOTFS_SQUASHFS/d' .config
+          make defconfig
 
-      #-------------------------------------------------
-      # 6. 下载 & 编译
-      #-------------------------------------------------
-      - name: Make Download
-        run: |
-          df -h
-          cd openwrt
-          make download -j50
+      #-------------------------------------------------
+      # 6. 下载 & 编译
+      #-------------------------------------------------
+      - name: Make Download
+        run: |
+          df -h
+          cd openwrt
+          make download -j50
 
-      - name: Compile Openwrt
-        id: compileopenwrt
-        continue-on-error: true
-        run: |
-          df -h
-          cd openwrt
-          make -j$(($(nproc) + 1)) || make -j$(($(nproc) + 1)) V=s
-          echo $?
+      - name: Compile Openwrt
+        id: compileopenwrt
+        continue-on-error: true
+        run: |
+          df -h
+          cd openwrt
+          make -j$(($(nproc) + 1)) || make -j$(($(nproc) + 1)) V=s
+          echo $?
 
-      # 编译失败则单线程输出详细日志
-      - name: If Error
-        if: steps.compileopenwrt.outcome == 'failure'
-        run: |
-          cat openwrt/.config
-          echo '================================================================'
-          cd openwrt && make -j1 V=s
+      # 编译失败则单线程输出详细日志
+      - name: If Error
+        if: steps.compileopenwrt.outcome == 'failure'
+        run: |
+          cat openwrt/.config
+          echo '================================================================'
+          cd openwrt && make -j1 V=s
 
-      #-------------------------------------------------
-      # 6.5. 编译后获取内核版本 (根据您的要求调整)
-      #-------------------------------------------------
-      - name: Get Kernel Version After Compile
-        id: kernel_version_after
-        # 仅在编译成功时执行
-        if: steps.compileopenwrt.outcome == 'success'
-        run: |
-          cd openwrt
-          # 最可靠方式 1: 查找编译目录中生成的内核版本文件
-          KERNEL_RELEASE_FILE=$(find build_dir/target*/linux*/ -name 'kernel.release' 2>/dev/null | head -n 1)
-          
-          if [[ -f "$KERNEL_RELEASE_FILE" ]]; then
-            # 文件内容通常是 '5.10.123' 或 '5.10.123-1'
-            KERNEL_VERSION=$(cat "$KERNEL_RELEASE_FILE" | awk '{print $1}')
-          else
-            # 备用方案 1: 从 .config 中查找配置项 (例如 CONFIG_KERNEL_LATEST_5_15)
-            KERNEL_CONFIG=$(grep 'CONFIG_KERNEL_LATEST_.*=y' .config | head -n 1)
-            if [[ ! -z "$KERNEL_CONFIG" ]]; then
-              # 提取版本号，例如 'CONFIG_KERNEL_LATEST_5_15=y' -> '5.15'
-              KERNEL_VERSION=$(echo "$KERNEL_CONFIG" | sed 's/CONFIG_KERNEL_LATEST_\(.*\)=y/\1/' | tr '_' '.')
-            else
-              # 备用方案 2: 从目标 Makefile 中查找 KERNEL_PATCHVER
-              KERNEL_VERSION=$(grep 'KERNEL_PATCHVER:=' target/linux/rockchip/armv8/Makefile 2>/dev/null | awk -F: '{print $2}' | tr -d ' ' | tr -d '\n')
-            fi
-          fi
-          
-          # 最终检查
-          if [[ -z "$KERNEL_VERSION" ]]; then
-            KERNEL_VERSION="Unknown"
-          fi
-          
-          echo "Detected Kernel Version: ${KERNEL_VERSION}"
-          # 设置环境变量供后续步骤使用
-          echo "KERNEL=${KERNEL_VERSION}" >> $GITHUB_ENV
-          echo "kernel_version_found=true" >> $GITHUB_OUTPUT
+      #-------------------------------------------------
+      # 6.5. 编译后获取内核版本 (根据您的要求调整)
+      #-------------------------------------------------
+      - name: Get Kernel Version After Compile
+        id: kernel_version_after
+        if: steps.compileopenwrt.outcome == 'success'
+        run: |
+          cd openwrt
+          KERNEL_RELEASE_FILE=$(find build_dir/target*/linux*/ -name 'kernel.release' 2>/dev/null | head -n 1)
+          if [[ -f "$KERNEL_RELEASE_FILE" ]]; then
+            KERNEL_VERSION=$(cat "$KERNEL_RELEASE_FILE" | awk '{print $1}')
+          else
+            KERNEL_CONFIG=$(grep 'CONFIG_KERNEL_LATEST_.*=y' .config | head -n 1)
+            if [[ ! -z "$KERNEL_CONFIG" ]]; then
+              KERNEL_VERSION=$(echo "$KERNEL_CONFIG" | sed 's/CONFIG_KERNEL_LATEST_\(.*\)=y/\1/' | tr '_' '.')
+            else
+              KERNEL_VERSION=$(grep 'KERNEL_PATCHVER:=' target/linux/rockchip/armv8/Makefile 2>/dev/null | awk -F: '{print $2}' | tr -d ' ' | tr -d '\n')
+            fi
+          fi
+          if [[ -z "$KERNEL_VERSION" ]]; then
+            KERNEL_VERSION="Unknown"
+          fi
+          echo "Detected Kernel Version: ${KERNEL_VERSION}"
+          echo "KERNEL=${KERNEL_VERSION}" >> $GITHUB_ENV
+          echo "kernel_version_found=true" >> $GITHUB_OUTPUT
 
+      #-------------------------------------------------
+      # 7. 后期处理：仅保留 R4S 固件
+      #-------------------------------------------------
+      - name: Print Disk Space After
+        run: df -h
 
-      #-------------------------------------------------
-      # 7. 后期处理：仅保留 R4S 固件
-      #-------------------------------------------------
-      - name: Print Disk Space After
-        run: df -h
+      - name: Assemble R4S Artifact
+        id: assemble_r4s_artifact
+        run: |
+          rm -rf ./artifact/
+          mkdir -p ./artifact/
+          mv openwrt/bin/targets/rockchip/armv8/*sysupgrade.img* ./artifact/
+          cd ./artifact/
+          gzip -d *.gz && exit 0
+          gzip *.img
+          releaseTag=${{ env.latest_release }}
+          sha256sum *.gz | tee R4S-Situ-$releaseTag-$(date +%Y-%m-%d).sha256sum
+          mv *r4s*ext4* ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
+          mv *r4s*squashfs* ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
+          cd ../openwrt
+          cp .config ../artifact/config-full.seed
+          ./scripts/diffconfig.sh > ../artifact/config-diff.seed
+          release_tag="R4S-Situ-$releaseTag-$(date +%Y-%m-%d)"
+          echo "release_tag=${release_tag}" >>$GITHUB_ENV
 
-      - name: Assemble R4S Artifact
-        id: assemble_r4s_artifact
-        run: |
-          rm -rf ./artifact/
-          mkdir -p ./artifact/
-          mv openwrt/bin/targets/rockchip/armv8/*sysupgrade.img* ./artifact/
-          cd ./artifact/
-          gzip -d *.gz && exit 0
-          gzip *.img
-          releaseTag=${{ env.latest_release }}
-          sha256sum *.gz | tee R4S-Situ-$releaseTag-$(date +%Y-%m-%d).sha256sum
-          mv *r4s*ext4* ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-ext4.img.gz
-          mv *r4s*squashfs* ./R4S-Situ-$releaseTag-$(date +%Y-%m-%d)-sfs.img.gz
-          cd ../openwrt
-          cp .config ../artifact/config-full.seed
-          ./scripts/diffconfig.sh > ../artifact/config-diff.seed
-          release_tag="R4S-Situ-$releaseTag-$(date +%Y-%m-%d)"
-          echo "release_tag=${release_tag}" >>$GITHUB_ENV
+      #-------------------------------------------------
+      # 8. 上传固件 & 创建 Release
+      #-------------------------------------------------
+      - name: Upload Artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ env.release_tag }}-artifact
+          path: ./artifact/
 
-      #-------------------------------------------------
-      # 8. 上传固件 & 创建 Release
-      #-------------------------------------------------
-      - name: Upload Artifact
-        uses: actions/upload-artifact@main
-        with:
-          name: ${{ env.release_tag }}-artifact
-          path: ./artifact/
-
-      - name: Create release
-        id: create_release
-        uses: ncipollo/release-action@main
-        with:
-          name: ${{ env.release_tag }}-ROM
-          allowUpdates: true
-          tag: ${{ env.release_tag }}
-          commit: master
-          replacesArtifacts: true
-          draft: false
-          prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: ./artifact/*.gz,./artifact/*.seed,./artifact/*.sha256sum
-          body: |
-              - 内核版本: ${{ env.KERNEL }}
-              - 默认地址: 192.168.1.1
-              - 默认密码: password
+      - name: Create release
+        id: create_release
+        uses: ncipollo/release-action@main
+        with:
+          name: ${{ env.release_tag }}-ROM
+          allowUpdates: true
+          tag: ${{ env.release_tag }}
+          commit: master
+          replacesArtifacts: true
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: ./artifact/*.gz,./artifact/*.seed,./artifact/*.sha256sum
+          body: |
+            - 内核版本: ${{ env.KERNEL }}
+            - 默认地址: 192.168.1.1
+            - 默认密码: password
